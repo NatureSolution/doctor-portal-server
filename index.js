@@ -33,13 +33,41 @@ async function run() {
       res.send(services);
     });
 
+    //Warning: this is not propoer way
+    // Use mondob Aggragation, lookup, pipeline, match, group
+    app.get("/available", async (req, res) => {
+      const date = req.query.date;
+      // total booking
+      const services = await serviceCollection.find().toArray();
+
+      //get the booking of the day
+      const query = { date: date };
+      const bookings = await bookingCollection.find(query).toArray();
+      // for eac service and find booking
+      services.forEach((service) => {
+        const serviceBooking = bookings.filter(
+          (b) => b.treatment === service.name
+        );
+        const booked = serviceBooking.map((s) => s.slot);
+        const available = service.slots.filter((s) => !booked.includes(s));
+        service.slots = available;
+      });
+      res.send(services);
+    });
+    //
+    //
+    //
+
     app.get("/booking", async (req, res) => {
-      const query = {};
-      const cursor = bookingCollection.find(query);
-      const bookings = await cursor.toArray();
+      const patient = req.query.patient;
+      const query = { patient: patient };
+      const bookings = await bookingCollection.find(query).toArray();
       res.send(bookings);
     });
 
+    //
+    //
+    //
     app.post("/booking", async (req, res) => {
       const booking = req.body;
       const query = {
