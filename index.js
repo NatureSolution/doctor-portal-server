@@ -1,10 +1,11 @@
 const express = require("express");
 const cors = require("cors");
 require("dotenv").config();
-const { MongoClient, ServerApiVersion } = require("mongodb");
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const nodemailer = require("nodemailer");
 const nodemailerSendgrid = require("nodemailer-sendgrid");
 const sgTransport = require("nodemailer-sendgrid-transport");
+const stripe = require("stripe")(process.env.STRIP_SECRET_KEY);
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -51,11 +52,45 @@ function sendAppointmentEmail(booking) {
     subject: `Your appointment for ${treatment} is on ${date} at ${slot} is conformed`,
     text: `Your appointment for ${treatment} is on ${date} at ${slot} is conformed`,
     html: `
-    <div>
-      <p>Test</p>
-      <p>Test</p>
-      <p>Final</p>
-    </div>
+     <div>
+        <p> Hello ${patientName}, </p>
+        <h3>Thank you for your payment . </h3>
+        <h3>We have received your payment</h3>
+        <p>Looking forward to seeing you on ${date} at ${slot}.</p>
+        <h3>Our Address</h3>
+        <p>Andor Killa Bandorban</p>
+        <p>Bangladesh</p>
+        <a href="https://web.programming-hero.com/">unsubscribe</a>
+      </div>
+    `,
+  };
+  emailClaint.sendMail(email, function (err, info) {
+    if (err) {
+      console.log(err);
+    } else {
+      console.log("Message SendL", info);
+    }
+  });
+}
+////SEND payment conformation mail
+function sendPaymentConformationEmail(booking) {
+  const { patient, patientName, treatment, date, slot } = booking;
+  var email = {
+    from: "xavedjan@gmail.com",
+    to: patient,
+    subject: `We have received your  ${treatment} is on ${date} at ${slot} is conformed`,
+    text: `Your payment for this Appoint,menmnt ${treatment} is on ${date} at ${slot} is conformed`,
+    html: `
+     <div>
+        <p> Hello ${patientName}, </p>
+        <h3>Thank you for your payment . </h3>
+        <h3>We have received your payment</h3>
+        <p>Looking forward to seeing you on ${date} at ${slot}.</p>
+        <h3>Our Address</h3>
+        <p>Andor Killa Bandorban</p>
+        <p>Bangladesh</p>
+        <a href="https://web.programming-hero.com/">unsubscribe</a>
+      </div>
     `,
   };
   emailClaint.sendMail(email, function (err, info) {
@@ -78,6 +113,9 @@ async function run() {
       .collection("bookings");
     const userCollection = client.db("doctors-portal").collection("users");
     const doctorsCollection = client.db("doctors-portal").collection("doctors");
+    const paymentCollection = client
+      .db("doctors-portal")
+      .collection("payments");
 
     //
     const verifyAdmin = async (req, res, next) => {
@@ -167,6 +205,13 @@ async function run() {
       }
     });
     //
+
+    app.get("/booking/:id", verifyJWT, async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: ObjectId(id) };
+      const booking = await bookingCollection.findOne(query);
+      res.send(booking);
+    });
     //
     app.post("/booking", async (req, res) => {
       const booking = req.body;
@@ -184,6 +229,24 @@ async function run() {
       return res.send({ success: true, result });
     });
     //
+    app.patch("/booking/:id", verifyJWT, async (req, res) => {
+      const id = req.params.id;
+      const payment = req.body;
+      const filter = { _id: ObjectId(id) };
+      const updatedDoc = {
+        $set: {
+          paid: true,
+          transactionId: payment.transactionId,
+        },
+      };
+
+      const result = await paymentCollection.insertOne(payment);
+      const updatedBooking = await bookingCollection.updateOne(
+        filter,
+        updatedDoc
+      );
+      res.send(updatedDoc);
+    });
     //
     //Warning: this is not propoer way
     // Use mondob Aggragation, lookup, pipeline, match, group
@@ -206,6 +269,7 @@ async function run() {
       });
       res.send(services);
     });
+    //
 
     //
     app.get("/doctor", verifyJWT, verifyAdmin, async (req, res) => {
@@ -224,6 +288,18 @@ async function run() {
       const filter = { email: email };
       const result = await doctorsCollection.deleteOne(filter);
       res.send(result);
+    });
+    //
+    app.post("/create-payment-intent", verifyJWT, async (req, res) => {
+      const service = req.body;
+      const price = service.price;
+      const amount = price * 100;
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: amount,
+        currency: "usd",
+        payment_method_types: ["card"],
+      });
+      res.send({ clientSecret: paymentIntent.client_secret });
     });
     //
     console.log("Database Connected");
